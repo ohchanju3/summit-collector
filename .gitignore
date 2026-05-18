@@ -1,0 +1,9 @@
+data/*.xlsx
+data/*.csv
+__pycache__/
+*.pyc
+.env
+.DS_Store
+venv/
+.venv/
+*.egg-info/
