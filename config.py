@@ -1,5 +1,5 @@
 # 수집 설정
-START_DATE = "2021-01-01"
+START_DATE = "2026-05-15"
 END_DATE = "2026-05-18"  # 오늘 날짜로 업데이트하거나 "today" 사용
 
 # GDELT DOC API 엔드포인트
@@ -13,6 +13,10 @@ SUMMIT_QUERIES = [
     "presidential summit",
     "diplomatic summit",
     "leaders summit agreement",
+    "official visit signed agreement",
+    "joint statement leaders",
+    "foreign minister bilateral talks",
+    "summit communique",
 ]
 
 # 엑셀 저장 경로

@@ -1,25 +1,13 @@
-import spacy
+import json
 from datetime import datetime
 from typing import Dict, List, Optional
-
-# spaCy NER 모델 로드 (LLM 미사용 - 논문 재현성 확보)
-# 첫 실행 시: python -m spacy download en_core_web_sm
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    raise OSError(
-        "spaCy 모델이 없습니다.\n"
-        "다음 명령어로 설치하세요: python -m spacy download en_core_web_sm"
-    )
+import ollama
+from newspaper import Article as NewsArticle
+from newspaper.article import ArticleException
 
 
 def _parse_gdelt_date(date_str: str) -> Optional[str]:
-    """
-    GDELT 날짜 형식 파싱
-    입력 예시: '20240115T120000Z'
-    출력 예시: '2024-01-15'
-    - today/yesterday 같은 상대 표현 문제를 GDELT가 발행일 기준으로 자동 처리
-    """
+    """GDELT 날짜 형식 파싱 (YYYYMMDDHHMMSS → YYYY-MM-DD)"""
     if not date_str:
         return None
     try:
@@ -28,53 +16,127 @@ def _parse_gdelt_date(date_str: str) -> Optional[str]:
         return date_str
 
 
-def _extract_entities(text: str) -> Dict:
+def _download_body_text(url: str) -> str:
+    """URL에서 기사 본문을 크롤링"""
+    if not url:
+        return ""
+    try:
+        article = NewsArticle(url, language='en', request_timeout=7)
+        article.set_header({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        })
+        article.download()
+        article.parse()
+        return article.text.strip()
+    except ArticleException:
+        return ""
+    except Exception:
+        return ""
+
+
+def _extract_entities_with_llama(text: str) -> Dict:
     """
-    spaCy NER로 인물/장소/국가 추출
-    - PERSON: 정상 이름
-    - GPE (Geo-Political Entity): 국가, 도시
-    - LOC: 지역명
+    로컬 Llama 3로 참가자/장소/내용 요약 추출.
+    속도 최적화: 앞 3000자만 전달 (참가자/장소는 도입부, 합의 내용은 중반부까지 커버)
     """
-    doc = nlp(text)
+    if not text:
+        return {"persons": [], "locations": [], "summary": ""}
 
-    persons = list(dict.fromkeys(  # 순서 유지하면서 중복 제거
-        ent.text for ent in doc.ents if ent.label_ == "PERSON"
-    ))
-    locations = list(dict.fromkeys(
-        ent.text for ent in doc.ents if ent.label_ in ("GPE", "LOC")
-    ))
+    truncated = text[:3000]
 
-    return {
-        "persons": persons[:4],    # 최대 4명
-        "locations": locations[:3],  # 최대 3곳
-    }
+    system_instruction = (
+        "You are a data analyst specializing in international diplomacy. "
+        "From the given news article, extract: "
+        "1) persons: full names of all leaders or officials who attended the summit or official meeting. "
+        "   Include leaders of small or developing countries — do not filter by country size or importance. "
+        "2) locations: countries and cities where the meeting took place. "
+        "3) summary: one sentence describing what was discussed or agreed upon. "
+        "Output strictly as JSON: "
+        "{\"persons\": [\"Name1\", \"Name2\"], \"locations\": [\"City\", \"Country\"], \"summary\": \"...\"}"
+    )
+
+    try:
+        response = ollama.chat(
+            model='llama3',
+            messages=[
+                {'role': 'system', 'content': system_instruction},
+                {'role': 'user', 'content': f"Text to analyze:\n{truncated}"}
+            ],
+            options={'temperature': 0.0, 'num_thread': 4},
+            format='json'
+        )
+
+        content = response['message']['content']
+        result = json.loads(content)
+
+        raw_persons = result.get("persons", [])
+        raw_locations = result.get("locations", [])
+        summary = result.get("summary", "")
+
+        # dict 형태로 반환되는 경우 방어 처리
+        cleaned_persons = []
+        for p in raw_persons:
+            if isinstance(p, dict):
+                cleaned_persons.append(p.get("name") or p.get("person") or str(list(p.values())[0]))
+            elif isinstance(p, str):
+                cleaned_persons.append(p)
+
+        cleaned_locations = []
+        for l in raw_locations:
+            if isinstance(l, dict):
+                cleaned_locations.append(l.get("name") or l.get("location") or str(list(l.values())[0]))
+            elif isinstance(l, str):
+                cleaned_locations.append(l)
+
+        return {
+            "persons": cleaned_persons[:5],
+            "locations": cleaned_locations[:4],
+            "summary": summary if isinstance(summary, str) else ""
+        }
+    except Exception as e:
+        print(f"   [Llama Error] → {e}")
+        return {"persons": [], "locations": [], "summary": ""}
 
 
-def process_article(article: Dict) -> Dict:
-    """기사 하나를 구조화된 행(row)으로 변환"""
+def process_article(article: Dict, index: int, total: int) -> Dict:
+    """기사 하나를 크롤링하고 Llama 3로 분석하여 행(row) 데이터 변환"""
     title = article.get("title", "")
     url = article.get("url", "")
     date_raw = article.get("seendate", "")
     domain = article.get("domain", "")
     source_country = article.get("sourcecountry", "")
 
-    entities = _extract_entities(title)
+    print(f"  [{index}/{total}] 분석 중: {title[:40]}...")
+
+    body_text = _download_body_text(url)
+
+    if body_text and len(body_text) > 100:
+        analysis_text = body_text
+        extraction_source = "Llama3 (Body)"
+    else:
+        analysis_text = f"Title: {title}\nSource Domain: {domain}"
+        extraction_source = "Llama3 (Title Fallback)"
+
+    entities = _extract_entities_with_llama(analysis_text)
 
     return {
         "date": _parse_gdelt_date(date_raw),
         "participants": ", ".join(entities["persons"]),
         "location": ", ".join(entities["locations"]),
+        "summary": entities["summary"],
         "title": title,
         "source": domain,
         "source_country": source_country,
         "url": url,
+        "extraction_method": extraction_source
     }
 
 
 def process_all(articles: List[Dict]) -> List[Dict]:
-    """전체 기사 처리"""
+    """전체 기사 배치 처리"""
     results = []
-    for article in articles:
-        row = process_article(article)
+    total = len(articles)
+    for idx, article in enumerate(articles, 1):
+        row = process_article(article, idx, total)
         results.append(row)
     return results

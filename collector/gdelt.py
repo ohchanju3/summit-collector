@@ -13,10 +13,7 @@ def _format_date(date_str: str) -> str:
 
 def fetch_articles(query: str, start_date: str, end_date: str) -> List[Dict]:
     """
-    GDELT DOC API로 기사 목록 수집
-    - API 키 불필요, 완전 무료
-    - 15분마다 업데이트되므로 실시간성 보장
-    - maxrecords: 1회 최대 250건
+    GDELT DOC API로 기사 목록 수집 
     """
     params = {
         "query": query,
@@ -28,23 +25,44 @@ def fetch_articles(query: str, start_date: str, end_date: str) -> List[Dict]:
         "sort": "DateDesc",
     }
 
-    try:
-        res = requests.get(GDELT_DOC_API, params=params, timeout=30)
-        res.raise_for_status()
-        data = res.json()
-        return data.get("articles", [])
-    except requests.exceptions.Timeout:
-        print(f"  [timeout] 쿼리: {query}")
-        return []
-    except Exception as e:
-        print(f"  [error] 쿼리: {query} → {e}")
-        return []
+    max_retries = 5  # 최대 3번 재시도
+    retry_delay = 30  # 에러 발생 시 5초 대기
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            res = requests.get(GDELT_DOC_API, params=params, timeout=30)
+            
+            # 429 에러가 나면 예외 처리로 던짐
+            res.raise_for_status()
+            
+            data = res.json()
+            return data.get("articles", [])
+
+        except requests.exceptions.HTTPError as http_err:
+            # 429 Too Many Requests 에러인 경우 대기 후 재시도
+            if res.status_code == 429:
+                print(f"  [429 차단 발생] 서버 Too Many Requests 에러. {retry_delay}초 후 다시 시도합니다... ({attempt}/{max_retries})")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # 대기 시간을 점점 늘림 (5초 -> 10초)
+                continue
+            else:
+                print(f"  [HTTP Error {res.status_code}] 쿼리: {query}")
+                return []
+        except requests.exceptions.Timeout:
+            print(f"  [timeout] 쿼리: {query} (재시도 중...)")
+            time.sleep(2)
+            continue
+        except Exception as e:
+            print(f"  [error] 쿼리: {query} → {e}")
+            return []
+
+    print(f"  [수집 실패] 3번 재시도했으나 GDELT 서버 차단이 풀리지 않음: {query}")
+    return []
 
 
 def collect_all(start_date: str, end_date: str) -> List[Dict]:
     """
     여러 키워드로 수집 후 URL 기준 중복 제거
-    - 소규모 국가 정상회담도 포함하기 위해 다양한 쿼리 사용
     """
     all_articles = []
     seen_urls = set()
@@ -62,6 +80,6 @@ def collect_all(start_date: str, end_date: str) -> List[Dict]:
                 added += 1
 
         print(f"         → {added}개 추가 (누적 {len(all_articles)}개)")
-        time.sleep(1)  # API 과부하 방지
+        time.sleep(3)  
 
     return all_articles

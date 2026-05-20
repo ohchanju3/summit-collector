@@ -9,10 +9,12 @@ COLUMN_MAP = {
     "date": "날짜",
     "participants": "참가자",
     "location": "장소",
+    "summary": "내용 요약",
     "title": "기사 제목",
     "source": "언론사",
     "source_country": "출처 국가",
     "url": "링크",
+    "extraction_method": "추출 방식",
 }
 
 
@@ -43,8 +45,8 @@ def save_to_excel(data: List[Dict], output_dir: str = "data") -> str:
             cell.alignment = Alignment(horizontal="center")
 
         # 컬럼 너비 자동 조정
-        col_widths = {"날짜": 12, "참가자": 30, "장소": 20,
-                      "기사 제목": 60, "언론사": 20, "출처 국가": 12, "링크": 50}
+        col_widths = {"날짜": 12, "참가자": 30, "장소": 20, "내용 요약": 60,
+                      "기사 제목": 60, "언론사": 20, "출처 국가": 12, "링크": 50, "추출 방식": 20}
         for i, col_name in enumerate(df.columns, 1):
             col_letter = ws.cell(1, i).column_letter
             ws.column_dimensions[col_letter].width = col_widths.get(col_name, 20)

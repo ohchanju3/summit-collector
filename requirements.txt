@@ -1,4 +1,6 @@
 requests==2.31.0
-pandas==2.2.0
+pandas>=2.0.0
 openpyxl==3.1.2
-spacy==3.7.4
+ollama
+newspaper3k==0.2.8
+lxml_html_clean  # <--- 파이썬 3.10+ 환경을 위해 추가
