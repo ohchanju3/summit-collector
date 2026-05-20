@@ -24,6 +24,12 @@ def save_to_excel(data: List[Dict], output_dir: str = "data") -> str:
 
     df = pd.DataFrame(data)[list(COLUMN_MAP.keys())]
     df = df.rename(columns=COLUMN_MAP)
+
+    # 플레이스홀더 값 제거
+    placeholders = {"City, Country", "City", "Country", "Name1, Name2", "Name1"}
+    df["장소"] = df["장소"].apply(lambda x: "" if str(x).strip() in placeholders else x)
+    df["참가자"] = df["참가자"].apply(lambda x: "" if str(x).strip() in placeholders else x)
+
     df = df.sort_values("날짜", ascending=False).reset_index(drop=True)
 
     filename = f"summits_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"

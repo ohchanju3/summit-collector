@@ -8,25 +8,35 @@ import ollama
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+from config import LLM_MODEL
 
 
 def is_summit_article(row: pd.Series) -> bool:
     """
     Llama 3로 해당 행이 실제 정상회담 기사인지 판단
     """
-    text = f"Title: {row['기사 제목']}\nParticipants: {row['참가자']}\nLocation: {row['장소']}\nSummary: {row['내용 요약']}"
+    def clean(val):
+        s = str(val).strip()
+        return "" if s in ("nan", "None", "") else s
+
+    text = f"Title: {clean(row['기사 제목'])}\nParticipants: {clean(row['참가자'])}\nLocation: {clean(row['장소'])}\nSummary: {clean(row['내용 요약'])}"
 
     system_instruction = (
         "You are an expert in international diplomacy. "
         "Determine whether the given article is about an actual bilateral or multilateral summit meeting between heads of state or government. "
-        "A valid summit involves leaders (presidents, prime ministers, kings, etc.) of two or more countries meeting in person or virtually for official diplomatic purposes. "
-        "NOT a summit: sports events, trade/business meetings without heads of state, news analysis mentioning past summits, military conflicts, natural disasters. "
+        "A valid summit: leaders (presidents, prime ministers, kings, etc.) of two or more countries actually met in person or virtually for official diplomatic purposes. "
+        "NOT a valid summit: "
+        "- one leader issuing a warning, statement, or demand to another country without meeting "
+        "- news analysis or opinion pieces mentioning past summits "
+        "- articles about a future/upcoming meeting that has not yet taken place "
+        "- sports, business, or NGO events without heads of state "
+        "- military conflicts, natural disasters, or unrelated political news "
         "Output strictly as JSON: {\"is_summit\": true} or {\"is_summit\": false}"
     )
 
     try:
         response = ollama.chat(
-            model='llama3',
+            model=LLM_MODEL,
             messages=[
                 {'role': 'system', 'content': system_instruction},
                 {'role': 'user', 'content': text}
@@ -37,7 +47,7 @@ def is_summit_article(row: pd.Series) -> bool:
         result = json.loads(response['message']['content'])
         return bool(result.get("is_summit", False))
     except Exception as e:
-        print(f"   [Llama Error] → {e}")
+        print(f"   [LLM Error] → {e}")
         return True  # 에러 시 보수적으로 포함
 
 

@@ -25,8 +25,8 @@ def fetch_articles(query: str, start_date: str, end_date: str) -> List[Dict]:
         "sort": "DateDesc",
     }
 
-    max_retries = 5  # 최대 3번 재시도
-    retry_delay = 30  # 에러 발생 시 5초 대기
+    max_retries = 3  # 최대 3번 재시도
+    retry_delay = 10  # 429 발생 시 10초 대기 (이후 2배씩 증가)
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -56,7 +56,7 @@ def fetch_articles(query: str, start_date: str, end_date: str) -> List[Dict]:
             print(f"  [error] 쿼리: {query} → {e}")
             return []
 
-    print(f"  [수집 실패] 3번 재시도했으나 GDELT 서버 차단이 풀리지 않음: {query}")
+    print(f"  [수집 실패] {max_retries}번 재시도했으나 GDELT 서버 차단이 풀리지 않음: {query}")
     return []
 
 
@@ -80,6 +80,6 @@ def collect_all(start_date: str, end_date: str) -> List[Dict]:
                 added += 1
 
         print(f"         → {added}개 추가 (누적 {len(all_articles)}개)")
-        time.sleep(3)  
+        time.sleep(10)
 
     return all_articles

@@ -21,3 +21,6 @@ SUMMIT_QUERIES = [
 
 # 엑셀 저장 경로
 OUTPUT_DIR = "data"
+
+# LLM 모델명 (ollama 기준, 변경 시 여기만 수정)
+LLM_MODEL = "qwen2.5"

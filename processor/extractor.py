@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 import ollama
 from newspaper import Article as NewsArticle
 from newspaper.article import ArticleException
+from config import LLM_MODEL
 
 
 def _parse_gdelt_date(date_str: str) -> Optional[str]:
@@ -34,9 +35,9 @@ def _download_body_text(url: str) -> str:
         return ""
 
 
-def _extract_entities_with_llama(text: str) -> Dict:
+def _extract_entities(text: str) -> Dict:
     """
-    로컬 Llama 3로 참가자/장소/내용 요약 추출.
+    로컬 LLM으로 참가자/장소/내용 요약 추출.
     속도 최적화: 앞 3000자만 전달 (참가자/장소는 도입부, 합의 내용은 중반부까지 커버)
     """
     if not text:
@@ -47,17 +48,24 @@ def _extract_entities_with_llama(text: str) -> Dict:
     system_instruction = (
         "You are a data analyst specializing in international diplomacy. "
         "From the given news article, extract: "
-        "1) persons: full names of all leaders or officials who attended the summit or official meeting. "
-        "   Include leaders of small or developing countries — do not filter by country size or importance. "
-        "2) locations: countries and cities where the meeting took place. "
-        "3) summary: one sentence describing what was discussed or agreed upon. "
+        "1) persons: full names of heads of state or government (presidents, prime ministers, kings, etc.) "
+        "   who actually sat at the meeting table and participated in THIS specific summit. "
+        "   Do NOT include: airport reception officials, ambassadors, ministers who only greeted the leader, "
+        "   or leaders of other countries mentioned in passing or in a different context. "
+        "   Include leaders of small or developing countries — do not filter by country size. "
+        "2) locations: ONLY the country and city where THIS specific meeting physically took place. "
+        "   Do NOT include previous or future stops on a tour, or places mentioned in background context. "
+        "3) summary: one sentence describing what was discussed or agreed upon in THIS meeting. "
+        "IMPORTANT: Always output names and locations in English, regardless of the article's language. "
+        "If you cannot determine the specific city or country, use an empty array [] for locations. "
+        "Do NOT use placeholder values like 'City' or 'Country'. "
         "Output strictly as JSON: "
         "{\"persons\": [\"Name1\", \"Name2\"], \"locations\": [\"City\", \"Country\"], \"summary\": \"...\"}"
     )
 
     try:
         response = ollama.chat(
-            model='llama3',
+            model=LLM_MODEL,
             messages=[
                 {'role': 'system', 'content': system_instruction},
                 {'role': 'user', 'content': f"Text to analyze:\n{truncated}"}
@@ -94,7 +102,7 @@ def _extract_entities_with_llama(text: str) -> Dict:
             "summary": summary if isinstance(summary, str) else ""
         }
     except Exception as e:
-        print(f"   [Llama Error] → {e}")
+        print(f"   [LLM Error] → {e}")
         return {"persons": [], "locations": [], "summary": ""}
 
 
@@ -117,7 +125,7 @@ def process_article(article: Dict, index: int, total: int) -> Dict:
         analysis_text = f"Title: {title}\nSource Domain: {domain}"
         extraction_source = "Llama3 (Title Fallback)"
 
-    entities = _extract_entities_with_llama(analysis_text)
+    entities = _extract_entities(analysis_text)
 
     return {
         "date": _parse_gdelt_date(date_raw),
@@ -128,7 +136,7 @@ def process_article(article: Dict, index: int, total: int) -> Dict:
         "source": domain,
         "source_country": source_country,
         "url": url,
-        "extraction_method": extraction_source
+        "extraction_method": f"{LLM_MODEL} (Body)" if extraction_source.endswith("(Body)") else f"{LLM_MODEL} (Title Fallback)"
     }
 
 
