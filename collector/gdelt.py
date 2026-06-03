@@ -1,85 +1,76 @@
-import requests
-import time
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from typing import List, Dict
 
-from config import GDELT_DOC_API, SUMMIT_QUERIES
+from google.cloud import bigquery
+from config import BQ_PROJECT, BQ_KEY_PATH
+
+# 서비스 계정 키 경로 설정
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = BQ_KEY_PATH
 
 
-def _format_date(date_str: str) -> str:
-    """YYYY-MM-DD → YYYYMMDDHHMMSS (GDELT 형식)"""
-    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d%H%M%S")
-
-
-def fetch_articles(query: str, start_date: str, end_date: str) -> List[Dict]:
-    """
-    GDELT DOC API로 기사 목록 수집 
-    """
-    params = {
-        "query": query,
-        "mode": "artlist",
-        "maxrecords": 250,
-        "format": "json",
-        "startdatetime": _format_date(start_date),
-        "enddatetime": _format_date(end_date),
-        "sort": "DateDesc",
-    }
-
-    max_retries = 3  # 최대 3번 재시도
-    retry_delay = 10  # 429 발생 시 10초 대기 (이후 2배씩 증가)
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            res = requests.get(GDELT_DOC_API, params=params, timeout=30)
-            
-            # 429 에러가 나면 예외 처리로 던짐
-            res.raise_for_status()
-            
-            data = res.json()
-            return data.get("articles", [])
-
-        except requests.exceptions.HTTPError as http_err:
-            # 429 Too Many Requests 에러인 경우 대기 후 재시도
-            if res.status_code == 429:
-                print(f"  [429 차단 발생] 서버 Too Many Requests 에러. {retry_delay}초 후 다시 시도합니다... ({attempt}/{max_retries})")
-                time.sleep(retry_delay)
-                retry_delay *= 2  # 대기 시간을 점점 늘림 (5초 -> 10초)
-                continue
-            else:
-                print(f"  [HTTP Error {res.status_code}] 쿼리: {query}")
-                return []
-        except requests.exceptions.Timeout:
-            print(f"  [timeout] 쿼리: {query} (재시도 중...)")
-            time.sleep(2)
-            continue
-        except Exception as e:
-            print(f"  [error] 쿼리: {query} → {e}")
-            return []
-
-    print(f"  [수집 실패] {max_retries}번 재시도했으나 GDELT 서버 차단이 풀리지 않음: {query}")
-    return []
+def _to_bq_int(date_str: str) -> int:
+    """YYYY-MM-DD → YYYYMMDD000000 정수 (GKG DATE 필드 형식)"""
+    return int(datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d000000"))
 
 
 def collect_all(start_date: str, end_date: str) -> List[Dict]:
     """
-    여러 키워드로 수집 후 URL 기준 중복 제거
+    GDELT BigQuery (gdelt-bq.gdeltv2.gkg) 에서 정상회담 관련 기사 수집.
+    API 호출 없이 SQL 한 번으로 완료 → 429 없음.
     """
-    all_articles = []
-    seen_urls = set()
+    client = bigquery.Client(project=BQ_PROJECT)
 
-    for i, query in enumerate(SUMMIT_QUERIES, 1):
-        print(f"  [{i}/{len(SUMMIT_QUERIES)}] 수집 중: '{query}'")
-        articles = fetch_articles(query, start_date, end_date)
+    start_int = _to_bq_int(start_date)
+    end_int = int(
+        (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y%m%d000000")
+    )
 
-        added = 0
-        for article in articles:
-            url = article.get("url", "")
-            if url and url not in seen_urls:
-                seen_urls.add(url)
-                all_articles.append(article)
-                added += 1
+    # 정상회담 관련 GDELT GKG 테마 필터
+    # Themes 컬럼은 세미콜론(;) 구분 문자열
+    theme_filter = " OR ".join([
+        "Themes LIKE '%GOV_LEADER%'",
+        "Themes LIKE '%LEADER%'",
+        "Themes LIKE '%BILATERAL%'",
+        "Themes LIKE '%WB_587%'",       # International Meetings (World Bank taxonomy)
+        "Themes LIKE '%WB_131%'",       # Peace Negotiations
+        "Themes LIKE '%ECON_TRADE_DEAL%'",
+        "Themes LIKE '%SUMMIT%'",
+    ])
 
-        print(f"         → {added}개 추가 (누적 {len(all_articles)}개)")
-        time.sleep(20)
+    query = f"""
+    SELECT DISTINCT
+        DocumentIdentifier  AS url,
+        CAST(DATE AS STRING) AS seendate,
+        SourceCommonName    AS domain
+    FROM `gdelt-bq.gdeltv2.gkg`
+    WHERE DATE >= {start_int}
+      AND DATE <  {end_int}
+      AND ({theme_filter})
+      AND DocumentIdentifier IS NOT NULL
+      AND DocumentIdentifier != ''
+    LIMIT 5000
+    """
 
-    return all_articles
+    print(f"  BigQuery 쿼리 실행 중 ({start_date} ~ {end_date})...")
+    rows = list(client.query(query).result())
+    print(f"  → 원본 {len(rows)}행 수신")
+
+    # URL 기준 중복 제거 + 필드 정규화
+    seen_urls: set = set()
+    articles: List[Dict] = []
+    for row in rows:
+        url = row.url or ""
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        articles.append({
+            "url":           url,
+            "seendate":      row.seendate or "",
+            "domain":        row.domain or "",
+            "sourcecountry": "",   # GKG 테이블에 소재국 컬럼 없음
+            "title":         "",   # GKG 테이블에 제목 없음 — newspaper3k 크롤링으로 대체
+        })
+
+    print(f"  → 중복 제거 후 {len(articles)}개 기사")
+    return articles
