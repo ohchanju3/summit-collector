@@ -148,3 +148,31 @@ def process_all(articles: List[Dict]) -> List[Dict]:
         row = process_article(article, idx, total)
         results.append(row)
     return results
+
+
+def dedup_by_event(rows: List[Dict]) -> List[Dict]:
+    """
+    날짜 + 참가자 조합 기준으로 동일 정상회담 중복 기사 제거.
+    참가자가 비어 있는 행은 dedup 대상에서 제외하고 그대로 포함.
+    """
+    seen_keys = set()
+    deduped = []
+
+    for row in rows:
+        participants = row.get("participants", "").strip()
+        date = row.get("date", "")
+
+        if not participants:
+            deduped.append(row)
+            continue
+
+        names = frozenset(n.strip() for n in participants.split(",") if n.strip())
+        key = (date, names)
+
+        if key not in seen_keys:
+            seen_keys.add(key)
+            deduped.append(row)
+
+    removed = len(rows) - len(deduped)
+    print(f"→ 이벤트 단위 중복 제거: {len(rows)}개 → {len(deduped)}개 ({removed}개 제거)")
+    return deduped

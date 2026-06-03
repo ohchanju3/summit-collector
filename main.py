@@ -1,6 +1,6 @@
 from config import START_DATE, END_DATE, OUTPUT_DIR
 from collector.gdelt import collect_all
-from processor.extractor import process_all
+from processor.extractor import process_all, dedup_by_event
 from exporter.excel import save_to_excel
 
 
@@ -24,8 +24,12 @@ def main():
     processed = process_all(articles)
     print(f"→ {len(processed)}개 기사 처리 완료\n")
 
-    # 3단계: 엑셀 저장
-    print("[3단계] 엑셀 파일 저장 중...")
+    # 3단계: 이벤트 단위 중복 제거
+    print("[3단계] 동일 정상회담 중복 기사 제거 중...")
+    processed = dedup_by_event(processed)
+
+    # 4단계: 엑셀 저장
+    print("[4단계] 엑셀 파일 저장 중...")
     filepath = save_to_excel(processed, OUTPUT_DIR)
 
     print("\n" + "=" * 50)
