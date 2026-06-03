@@ -26,17 +26,17 @@ def collect_all(start_date: str, end_date: str) -> List[Dict]:
         (datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y%m%d000000")
     )
 
-    # 정상회담 관련 GDELT GKG 테마 필터
-    # Themes 컬럼은 세미콜론(;) 구분 문자열
-    theme_filter = " OR ".join([
-        "Themes LIKE '%GOV_LEADER%'",
-        "Themes LIKE '%LEADER%'",
-        "Themes LIKE '%BILATERAL%'",
-        "Themes LIKE '%WB_587%'",       # International Meetings (World Bank taxonomy)
-        "Themes LIKE '%WB_131%'",       # Peace Negotiations
-        "Themes LIKE '%ECON_TRADE_DEAL%'",
-        "Themes LIKE '%SUMMIT%'",
+    # 정상회담 관련 GDELT GKG 테마 필터 (Category List 검증 완료)
+    # 조건: LEADER(정치 지도자 필수) AND 외교적 맥락 테마 중 하나 이상
+    # → 정치 지도자가 등장하면서 외교적 맥락이 있는 기사만 수집
+    diplomatic_context = " OR ".join([
+        "Themes LIKE '%RELATIONS%'",          # bilateral talks, 관계 개선
+        "Themes LIKE '%SOC_DIPLOMCOOP%'",     # 외교적 협력
+        "Themes LIKE '%GOV_INTERGOVERNMENTAL%'",  # 정부 간 활동
+        "Themes LIKE '%POL_HOSTVISIT%'",      # 국빈 방문, 정상 방문
+        "Themes LIKE '%NEGOTIATIONS%'",       # 협상
     ])
+    theme_filter = f"Themes LIKE '%LEADER%' AND ({diplomatic_context})"
 
     query = f"""
     SELECT DISTINCT
