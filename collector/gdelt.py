@@ -80,6 +80,6 @@ def collect_all(start_date: str, end_date: str) -> List[Dict]:
                 added += 1
 
         print(f"         → {added}개 추가 (누적 {len(all_articles)}개)")
-        time.sleep(10)
+        time.sleep(20)
 
     return all_articles
