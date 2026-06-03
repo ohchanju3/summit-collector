@@ -21,4 +21,4 @@ SUMMIT_QUERIES = [
 OUTPUT_DIR = "data"
 
 # LLM 모델명 (ollama 기준, 변경 시 여기만 수정)
-LLM_MODEL = "qwen2.5"
+LLM_MODEL = "llama3.1:70b"
