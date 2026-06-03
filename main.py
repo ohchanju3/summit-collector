@@ -1,3 +1,5 @@
+import time
+from datetime import datetime
 from config import START_DATE, END_DATE, OUTPUT_DIR
 from collector.gdelt import collect_all
 from processor.extractor import process_all, dedup_by_event
@@ -5,9 +7,11 @@ from exporter.excel import save_to_excel
 
 
 def main():
+    start_time = time.time()
     print("=" * 50)
     print("  정상회담 기사 수집기")
     print(f"  기간: {START_DATE} ~ {END_DATE}")
+    print(f"  시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 50)
 
     # 1단계: GDELT에서 기사 메타데이터 수집
@@ -32,9 +36,13 @@ def main():
     print("[4단계] 엑셀 파일 저장 중...")
     filepath = save_to_excel(processed, OUTPUT_DIR)
 
+    elapsed = time.time() - start_time
+    h, m, s = int(elapsed // 3600), int((elapsed % 3600) // 60), int(elapsed % 60)
     print("\n" + "=" * 50)
     print(f"  완료 - 파일 생성됨")
     print(f"  경로: {filepath}")
+    print(f"  종료: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"  소요: {h}시간 {m}분 {s}초")
     print("=" * 50)
 
 
