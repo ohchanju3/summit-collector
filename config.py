@@ -11,11 +11,9 @@ SUMMIT_QUERIES = [
     "state visit president prime minister",
     "heads of state meeting",
     "presidential summit",
-    "diplomatic summit",
+    "summit declaration",
     "leaders summit agreement",
-    "official visit signed agreement",
-    "joint statement leaders",
-    "foreign minister bilateral talks",
+    "bilateral meeting president",
     "summit communique",
 ]
 
