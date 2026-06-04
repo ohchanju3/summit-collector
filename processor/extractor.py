@@ -26,7 +26,7 @@ def _download_body_text(url: str) -> tuple:
     if not url:
         return "", ""
     try:
-        article = NewsArticle(url, language='en', request_timeout=7,
+        article = NewsArticle(url, request_timeout=7,
                               browser_user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
         article.download()
         article.parse()
@@ -49,6 +49,8 @@ def _extract_entities(text: str) -> Dict:
 
     system_instruction = (
         "You are a data analyst specializing in international diplomacy. "
+        "The article text may be in any language. Analyze it in whatever language it is written in, "
+        "but always output your JSON response in English. "
         "From the given news article, extract: "
         "1) persons: full names of heads of state or government (presidents, prime ministers, kings, etc.) "
         "   who actually sat at the meeting table and participated in THIS specific summit. "
@@ -62,7 +64,6 @@ def _extract_entities(text: str) -> Dict:
         "Do NOT infer, guess, or hallucinate any names, locations, or facts. "
         "If the text does not clearly describe a bilateral/multilateral summit between heads of state, "
         "return empty arrays for persons and locations, and an empty string for summary. "
-        "IMPORTANT: Always output names and locations in English, regardless of the article's language. "
         "If you cannot determine the specific city or country, use an empty array [] for locations. "
         "Do NOT use placeholder values like 'City' or 'Country'. "
         "Output strictly as JSON: "
