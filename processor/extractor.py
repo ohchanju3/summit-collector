@@ -26,10 +26,8 @@ def _download_body_text(url: str) -> tuple:
     if not url:
         return "", ""
     try:
-        article = NewsArticle(url, language='en', request_timeout=7)
-        article.set_header({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-        })
+        article = NewsArticle(url, language='en', request_timeout=7,
+                              browser_user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
         article.download()
         article.parse()
         return article.text.strip(), article.title.strip()
