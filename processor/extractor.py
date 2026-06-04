@@ -17,10 +17,14 @@ def _parse_gdelt_date(date_str: str) -> Optional[str]:
         return date_str
 
 
-def _download_body_text(url: str) -> str:
-    """URL에서 기사 본문을 크롤링"""
+def _download_body_text(url: str) -> tuple:
+    """
+    URL에서 기사 본문과 제목을 크롤링.
+    본문 크롤링 실패 시에도 제목은 반환 (LLM fallback용).
+    반환: (body_text, title)
+    """
     if not url:
-        return ""
+        return "", ""
     try:
         article = NewsArticle(url, language='en', request_timeout=7)
         article.set_header({
@@ -28,11 +32,11 @@ def _download_body_text(url: str) -> str:
         })
         article.download()
         article.parse()
-        return article.text.strip()
+        return article.text.strip(), article.title.strip()
     except ArticleException:
-        return ""
+        return "", ""
     except Exception:
-        return ""
+        return "", ""
 
 
 def _extract_entities(text: str) -> Dict:
@@ -114,16 +118,22 @@ def process_article(article: Dict, index: int, total: int) -> Dict:
     domain = article.get("domain", "")
     source_country = article.get("sourcecountry", "")
 
-    print(f"  [{index}/{total}] 분석 중: {title[:40]}...")
+    print(f"  [{index}/{total}] 분석 중: {url[:60]}...")
 
-    body_text = _download_body_text(url)
+    body_text, crawled_title = _download_body_text(url)
+
+    # 크롤링된 제목이 있으면 우선 사용, 없으면 GDELT 제공 제목 사용
+    effective_title = crawled_title or title
 
     if body_text and len(body_text) > 100:
         analysis_text = body_text
-        extraction_source = "Llama3 (Body)"
+        extraction_source = "Body"
+    elif effective_title:
+        analysis_text = f"Title: {effective_title}\nSource Domain: {domain}"
+        extraction_source = "Title Fallback"
     else:
-        analysis_text = f"Title: {title}\nSource Domain: {domain}"
-        extraction_source = "Llama3 (Title Fallback)"
+        analysis_text = ""
+        extraction_source = "Title Fallback"
 
     entities = _extract_entities(analysis_text)
 
