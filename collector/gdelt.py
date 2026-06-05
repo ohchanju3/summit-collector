@@ -42,7 +42,9 @@ def collect_all(start_date: str, end_date: str) -> List[Dict]:
     SELECT DISTINCT
         DocumentIdentifier  AS url,
         CAST(DATE AS STRING) AS seendate,
-        SourceCommonName    AS domain
+        SourceCommonName    AS domain,
+        V2Persons           AS v2persons,
+        V2Locations         AS v2locations
     FROM `gdelt-bq.gdeltv2.gkg`
     WHERE DATE >= {start_int}
       AND DATE <  {end_int}
@@ -68,8 +70,10 @@ def collect_all(start_date: str, end_date: str) -> List[Dict]:
             "url":           url,
             "seendate":      row.seendate or "",
             "domain":        row.domain or "",
-            "sourcecountry": "",   # GKG 테이블에 소재국 컬럼 없음
-            "title":         "",   # GKG 테이블에 제목 없음 — newspaper3k 크롤링으로 대체
+            "sourcecountry": "",            # GKG 테이블에 소재국 컬럼 없음
+            "title":         "",            # GKG 테이블에 제목 없음 — newspaper3k 크롤링으로 대체
+            "v2persons":     row.v2persons or "",
+            "v2locations":   row.v2locations or "",
         })
 
     print(f"  → 중복 제거 후 {len(articles)}개 기사")

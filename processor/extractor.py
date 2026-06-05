@@ -2,9 +2,17 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 import ollama
+import requests
+from bs4 import BeautifulSoup
 from newspaper import Article as NewsArticle
 from newspaper.article import ArticleException
 from config import LLM_MODEL
+
+_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+}
 
 
 def _parse_gdelt_date(date_str: str) -> Optional[str]:
@@ -17,24 +25,106 @@ def _parse_gdelt_date(date_str: str) -> Optional[str]:
         return date_str
 
 
+def _extract_from_html(html: str) -> tuple:
+    """BeautifulSoup으로 HTML에서 본문과 제목 추출. 반환: (body_text, title)"""
+    soup = BeautifulSoup(html, "html.parser")
+
+    # 제목 추출
+    title = ""
+    og_title = soup.find("meta", property="og:title")
+    if og_title and og_title.get("content"):
+        title = og_title["content"].strip()
+    elif soup.title:
+        title = soup.title.get_text().strip()
+
+    # 본문 추출: og:description → article 태그 → p 태그 집합
+    body = ""
+    og_desc = soup.find("meta", property="og:description")
+    if og_desc and og_desc.get("content"):
+        body = og_desc["content"].strip()
+
+    if not body:
+        article_tag = soup.find("article")
+        if article_tag:
+            body = article_tag.get_text(separator=" ", strip=True)
+
+    if not body:
+        paragraphs = soup.find_all("p")
+        body = " ".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 40)
+
+    return body[:5000], title
+
+
 def _download_body_text(url: str) -> tuple:
     """
     URL에서 기사 본문과 제목을 크롤링.
-    본문 크롤링 실패 시에도 제목은 반환 (LLM fallback용).
+    1차: newspaper3k  2차: requests+BeautifulSoup
     반환: (body_text, title)
     """
     if not url:
         return "", ""
+
+    # 1차: newspaper3k
     try:
         article = NewsArticle(url, request_timeout=7,
-                              browser_user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36')
+                              browser_user_agent=_HEADERS['User-Agent'])
         article.download()
         article.parse()
-        return article.text.strip(), article.title.strip()
-    except ArticleException:
-        return "", ""
+        body = article.text.strip()
+        title = article.title.strip()
+        if body and len(body) > 100:
+            return body, title
+        # 본문이 짧으면 제목만 들고 2차 시도
+        np_title = title
+    except (ArticleException, Exception):
+        np_title = ""
+
+    # 2차: requests + BeautifulSoup fallback
+    try:
+        resp = requests.get(url, headers=_HEADERS, timeout=8, allow_redirects=True)
+        resp.raise_for_status()
+        body, bs_title = _extract_from_html(resp.text)
+        title = bs_title or np_title
+        return body, title
     except Exception:
-        return "", ""
+        return "", np_title
+
+
+def _parse_gkg_persons(v2persons: str) -> List[str]:
+    """
+    GKG V2Persons 파싱. 형식: 'name,charoffset;name,charoffset;...'
+    """
+    if not v2persons:
+        return []
+    names = []
+    for entry in v2persons.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        name = entry.split(",")[0].strip()
+        if name:
+            names.append(name)
+    return list(dict.fromkeys(names))  # 순서 유지 중복 제거
+
+
+def _parse_gkg_locations(v2locations: str) -> List[str]:
+    """
+    GKG V2Locations 파싱. 형식: 'type#fullname#countrycode#adm1code#lat#lon#featureid;...'
+    fullname(index 1)만 추출.
+    """
+    if not v2locations:
+        return []
+    locs = []
+    for entry in v2locations.split(";"):
+        entry = entry.strip()
+        if not entry:
+            continue
+        parts = entry.split("#")
+        if len(parts) >= 2:
+            fullname = parts[1].strip()
+            if fullname:
+                locs.append(fullname)
+    return list(dict.fromkeys(locs))  # 순서 유지 중복 제거
 
 
 def _extract_entities(text: str) -> Dict:
@@ -120,6 +210,8 @@ def process_article(article: Dict, index: int, total: int) -> Dict:
     date_raw = article.get("seendate", "")
     domain = article.get("domain", "")
     source_country = article.get("sourcecountry", "")
+    v2persons = article.get("v2persons", "")
+    v2locations = article.get("v2locations", "")
 
     print(f"  [{index}/{total}] 분석 중: {url[:60]}...")
 
@@ -131,11 +223,21 @@ def process_article(article: Dict, index: int, total: int) -> Dict:
     if body_text and len(body_text) > 100:
         analysis_text = body_text
         extraction_source = "Body"
-    elif effective_title:
-        analysis_text = f"Title: {effective_title}\nSource Domain: {domain}"
-        extraction_source = "Title Fallback"
     else:
-        analysis_text = ""
+        # 본문 없을 때: 제목 + GKG 메타데이터(인물·장소) 조합
+        gkg_persons = _parse_gkg_persons(v2persons)
+        gkg_locs = _parse_gkg_locations(v2locations)
+
+        fallback_parts = []
+        if effective_title:
+            fallback_parts.append(f"Title: {effective_title}")
+        if gkg_persons:
+            fallback_parts.append(f"Persons mentioned in article (GDELT NLP): {', '.join(gkg_persons[:10])}")
+        if gkg_locs:
+            fallback_parts.append(f"Locations mentioned in article (GDELT NLP): {', '.join(gkg_locs[:8])}")
+        fallback_parts.append(f"Source Domain: {domain}")
+
+        analysis_text = "\n".join(fallback_parts)
         extraction_source = "Title Fallback"
 
     entities = _extract_entities(analysis_text)
@@ -145,11 +247,11 @@ def process_article(article: Dict, index: int, total: int) -> Dict:
         "participants": ", ".join(entities["persons"]),
         "location": ", ".join(entities["locations"]),
         "summary": entities["summary"],
-        "title": title,
+        "title": effective_title,
         "source": domain,
         "source_country": source_country,
         "url": url,
-        "extraction_method": f"{LLM_MODEL} (Body)" if extraction_source.endswith("(Body)") else f"{LLM_MODEL} (Title Fallback)"
+        "extraction_method": f"{LLM_MODEL} (Body)" if extraction_source == "Body" else f"{LLM_MODEL} (Title Fallback)"
     }
 
 
