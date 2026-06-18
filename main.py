@@ -1,5 +1,7 @@
 import json
 import time
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from config import START_DATE, END_DATE, OUTPUT_DIR
@@ -40,7 +42,7 @@ def main():
         print("수집된 기사가 없습니다. 검색어 또는 네트워크를 확인하세요.")
         return
 
-    # 2단계: 각 기사 URL 접속 후 본문 긁어서 NER 추출 (시간이 다소 소요됨)
+    # 2단계: 각 기사 URL 접속 후 본문 긁어서 NER 추출
     print("[2단계] URL 접속 및 기사 전문 NER 분석 중...")
     processed = process_all(articles)
     print(f"→ {len(processed)}개 기사 처리 완료\n")
@@ -61,6 +63,15 @@ def main():
     print(f"  종료: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"  소요: {h}시간 {m}분 {s}초")
     print("=" * 50)
+
+    # 5단계: filter.py 자동 실행
+    print("\n[5단계] 정상회담 여부 2차 필터링 시작...")
+    result = subprocess.run(
+        [sys.executable, "filter.py", str(filepath)],
+        check=False
+    )
+    if result.returncode != 0:
+        print(" filter.py 실행 중 오류 발생")
 
 
 if __name__ == "__main__":
