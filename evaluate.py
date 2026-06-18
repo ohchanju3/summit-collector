@@ -12,8 +12,6 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from config import LLM_MODEL
 
 
 ITEMS = [
@@ -22,25 +20,6 @@ ITEMS = [
     ("location",     "장소 추출이 정확한가? (회담 국가/도시가 맞는가)"),
     ("summary",      "내용 요약이 적절한가? (회담 핵심 내용을 담고 있는가)"),
 ]
-
-
-def translate_to_korean(text: str) -> str:
-    """Llama 3로 텍스트를 한국어로 번역"""
-    if not text or str(text) == "nan":
-        return ""
-    try:
-        import ollama
-        response = ollama.chat(
-            model=LLM_MODEL,
-            messages=[
-                {'role': 'system', 'content': "Translate the following text to Korean. Output only the translation, nothing else."},
-                {'role': 'user', 'content': str(text)}
-            ],
-            options={'temperature': 0.0, 'num_thread': 4}
-        )
-        return response['message']['content'].strip()
-    except Exception:
-        return str(text)
 
 
 def get_input(prompt: str) -> str:
@@ -63,16 +42,12 @@ def evaluate(df: pd.DataFrame, sample_n: int):
     print("=" * 60)
 
     for i, row in sample.iterrows():
-        print(f"\n[{i+1}/{total}] 번역 중...")
-        title_ko = translate_to_korean(row['기사 제목'])
-        summary_ko = translate_to_korean(row['내용 요약'])
-
         print(f"\n[{i+1}/{total}]")
         print(f"  날짜     : {row['날짜']}")
         print(f"  참가자   : {row['참가자']}")
         print(f"  장소     : {row['장소']}")
-        print(f"  내용 요약: {summary_ko}")
-        print(f"  기사 제목: {title_ko}")
+        print(f"  내용 요약: {row['내용 요약']}")
+        print(f"  기사 제목: {row['기사 제목']}")
         print(f"  언론사   : {row['언론사']}  |  추출 방식: {row['추출 방식']}")
         print(f"  링크     : {row['링크']}")
 

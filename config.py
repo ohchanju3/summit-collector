@@ -1,6 +1,6 @@
 # 수집 설정
 START_DATE = "2026-05-15"
-END_DATE = "2026-05-18"
+END_DATE = "2026-05-21"
 
 # Google BigQuery 설정
 BQ_PROJECT = "summit-collector"

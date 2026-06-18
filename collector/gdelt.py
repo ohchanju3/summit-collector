@@ -30,28 +30,26 @@ def collect_all(start_date: str, end_date: str) -> List[Dict]:
     # 조건: LEADER(정치 지도자 필수) AND 외교적 맥락 테마 중 하나 이상
     # → 정치 지도자가 등장하면서 외교적 맥락이 있는 기사만 수집
     diplomatic_context = " OR ".join([
-        "Themes LIKE '%RELATIONS%'",          # bilateral talks, 관계 개선
-        "Themes LIKE '%SOC_DIPLOMCOOP%'",     # 외교적 협력
-        "Themes LIKE '%GOV_INTERGOVERNMENTAL%'",  # 정부 간 활동
-        "Themes LIKE '%POL_HOSTVISIT%'",      # 국빈 방문, 정상 방문
-        "Themes LIKE '%NEGOTIATIONS%'",       # 협상
+        "Themes LIKE '%POL_HOSTVISIT%'",          # 국빈 방문, 정상 방문 (가장 직접적)
+        "Themes LIKE '%GOV_INTERGOVERNMENTAL%'",  # 정부 간 공식 활동
     ])
     theme_filter = f"Themes LIKE '%LEADER%' AND ({diplomatic_context})"
 
     query = f"""
-    SELECT DISTINCT
-        DocumentIdentifier  AS url,
-        CAST(DATE AS STRING) AS seendate,
-        SourceCommonName    AS domain,
-        V2Persons           AS v2persons,
-        V2Locations         AS v2locations
+    SELECT
+        DocumentIdentifier          AS url,
+        MIN(CAST(DATE AS STRING))   AS seendate,
+        MIN(SourceCommonName)       AS domain,
+        ANY_VALUE(V2Persons)        AS v2persons,
+        ANY_VALUE(V2Locations)      AS v2locations
     FROM `gdelt-bq.gdeltv2.gkg`
     WHERE DATE >= {start_int}
       AND DATE <  {end_int}
       AND ({theme_filter})
       AND DocumentIdentifier IS NOT NULL
       AND DocumentIdentifier != ''
-    LIMIT 5000
+    GROUP BY DocumentIdentifier
+    LIMIT 2000
     """
 
     print(f"  BigQuery 쿼리 실행 중 ({start_date} ~ {end_date})...")

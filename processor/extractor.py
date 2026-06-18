@@ -127,7 +127,7 @@ def _parse_gkg_locations(v2locations: str) -> List[str]:
     return list(dict.fromkeys(locs))  # 순서 유지 중복 제거
 
 
-def _extract_entities(text: str) -> Dict:
+def _extract_entities(text: str, article_date: str = "") -> Dict:
     """
     로컬 LLM으로 참가자/장소/내용 요약 추출.
     속도 최적화: 앞 3000자만 전달 (참가자/장소는 도입부, 합의 내용은 중반부까지 커버)
@@ -137,22 +137,31 @@ def _extract_entities(text: str) -> Dict:
 
     truncated = text[:3000]
 
+    date_context = f"The article was published on {article_date}. " if article_date else ""
+
     system_instruction = (
         "You are a data analyst specializing in international diplomacy. "
+        f"{date_context}"
         "The article text may be in any language. Analyze it in whatever language it is written in, "
-        "but always output your JSON response in English. "
+        "but ALWAYS output your JSON response in English. "
+        "ALL person names and location names MUST use the standard English spelling "
+        "as used in English-language international news sources (e.g., Reuters, BBC, AP). "
+        "NEVER output names or places in any non-Latin script or local-language spelling. "
         "From the given news article, extract: "
-        "1) persons: full names of heads of state or government (presidents, prime ministers, kings, etc.) "
+        "1) persons: full names (in English) of heads of state or government (presidents, prime ministers, kings, etc.) "
         "   who actually sat at the meeting table and participated in THIS specific summit. "
-        "   Do NOT include: airport reception officials, ambassadors, ministers who only greeted the leader, "
-        "   or leaders of other countries mentioned in passing or in a different context. "
+        "   Do NOT include: ministers, ambassadors, or officials below head-of-state/government level. "
+        "   Do NOT include leaders mentioned only in passing, historical context, or as background reference. "
+        "   Do NOT include leaders who were no longer in office at the time of the article's publication. "
+        "   The summit must be a CURRENT event described in this article, not a past or historical summit. "
         "   Include leaders of small or developing countries — do not filter by country size. "
-        "2) locations: ONLY the country and city where THIS specific meeting physically took place. "
-        "   Do NOT include previous or future stops on a tour, or places mentioned in background context. "
-        "3) summary: one sentence describing what was discussed or agreed upon in THIS meeting. "
+        "2) locations: ONLY the city and country where THIS specific meeting physically took place, in English. "
+        "   NEVER output location names in a non-English language. "
+        "   Do NOT include previous/future stops on a tour or background locations. "
+        "3) summary: one sentence in English describing what was discussed or agreed upon in THIS meeting. "
         "CRITICAL: Only extract information that is EXPLICITLY stated in the provided text. "
         "Do NOT infer, guess, or hallucinate any names, locations, or facts. "
-        "If the text does not clearly describe a bilateral/multilateral summit between heads of state, "
+        "If the text does not clearly describe a current bilateral/multilateral summit between heads of state, "
         "return empty arrays for persons and locations, and an empty string for summary. "
         "If you cannot determine the specific city or country, use an empty array [] for locations. "
         "Do NOT use placeholder values like 'City' or 'Country'. "
@@ -240,10 +249,11 @@ def process_article(article: Dict, index: int, total: int) -> Dict:
         analysis_text = "\n".join(fallback_parts)
         extraction_source = "Title Fallback"
 
-    entities = _extract_entities(analysis_text)
+    parsed_date = _parse_gdelt_date(date_raw) or ""
+    entities = _extract_entities(analysis_text, article_date=parsed_date)
 
     return {
-        "date": _parse_gdelt_date(date_raw),
+        "date": parsed_date or None,
         "participants": ", ".join(entities["persons"]),
         "location": ", ".join(entities["locations"]),
         "summary": entities["summary"],
